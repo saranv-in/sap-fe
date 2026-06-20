@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../store/useAuthStore';
 import api from '../services/api';
-import { Plus, Link as LinkIcon, Save, Layers, ListTodo, ShieldAlert, Award, FileText, CheckCircle } from 'lucide-react';
+import { Plus, Link as LinkIcon, Save, Layers, ListTodo, ShieldAlert, Award, FileText, CheckCircle, Edit2, Trash2 } from 'lucide-react';
 
 function AdminDashboard() {
   const user = useAuthStore((state) => state.user);
@@ -19,6 +19,7 @@ function AdminDashboard() {
   const [moduleDuration, setModuleDuration] = useState(60);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
   const [questionCount, setQuestionCount] = useState(0);
+  const [editingAssessmentId, setEditingAssessmentId] = useState(null);
 
   // Reports State
   const [selectedAssessmentReport, setSelectedAssessmentReport] = useState(null);
@@ -84,20 +85,58 @@ function AdminDashboard() {
       alert('Please select at least one question for the module.');
       return;
     }
+    
+    const payload = {
+      title: moduleTitle,
+      duration: moduleDuration,
+      questions: selectedQuestions,
+      questionCount: parseInt(questionCount) || 0
+    };
+
     try {
-      await api.post('/assessments', {
-        title: moduleTitle,
-        duration: moduleDuration,
-        questions: selectedQuestions,
-        questionCount: parseInt(questionCount) || 0
-      });
-      alert('Module Created Successfully!');
-      setModuleTitle('');
-      setQuestionCount(0);
-      setSelectedQuestions([]);
+      if (editingAssessmentId) {
+        await api.put(`/assessments/${editingAssessmentId}`, payload);
+        alert('Module Updated Successfully!');
+      } else {
+        await api.post('/assessments', payload);
+        alert('Module Created Successfully!');
+      }
+      handleCancelEdit();
       fetchAssessments();
     } catch (err) {
-      alert(err.response?.data?.message || 'Error creating module');
+      alert(err.response?.data?.message || 'Error saving module');
+    }
+  };
+
+  const handleStartEdit = (assessment) => {
+    setEditingAssessmentId(assessment._id);
+    setModuleTitle(assessment.title);
+    setModuleDuration(assessment.duration);
+    setQuestionCount(assessment.questionCount || 0);
+    setSelectedQuestions(assessment.questions.map(q => q._id));
+  };
+
+  const handleCancelEdit = () => {
+    setEditingAssessmentId(null);
+    setModuleTitle('');
+    setModuleDuration(60);
+    setQuestionCount(0);
+    setSelectedQuestions([]);
+  };
+
+  const handleDeleteModule = async (assessmentId) => {
+    if (!window.confirm('Are you sure you want to delete this module? This will also purge associated student submissions.')) {
+      return;
+    }
+    try {
+      await api.delete(`/assessments/${assessmentId}`);
+      alert('Module Deleted Successfully!');
+      if (editingAssessmentId === assessmentId) {
+        handleCancelEdit();
+      }
+      fetchAssessments();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error deleting module');
     }
   };
 
@@ -209,7 +248,7 @@ function AdminDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
           <div className="lg:col-span-2 bg-surface/50 border border-border/80 p-6 rounded-2xl backdrop-blur-sm">
             <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-              <Layers size={18} className="text-primary"/> Design Assessment Slot
+              <Layers size={18} className="text-primary"/> {editingAssessmentId ? 'Modify Drive Module' : 'Design Assessment Slot'}
             </h3>
             <p className="text-xs text-text-muted mb-6 leading-relaxed">Create assessments for placement tests by selecting duration constraints and mapping questions.</p>
             <form onSubmit={handleCreateModule} className="space-y-4">
@@ -266,11 +305,22 @@ function AdminDashboard() {
                   {questions.length === 0 && <p className="text-text-muted text-xs italic p-2">No questions available. Sync LeetCode problems first!</p>}
                 </div>
               </div>
-              <button 
-                type="submit" 
-                className="w-full bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 text-xs shadow-md shadow-primary/10">
-                <Plus size={14} /> Create Drive Module
-              </button>
+              <div className="flex gap-2">
+                {editingAssessmentId && (
+                  <button 
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="flex-1 bg-surface border border-border/80 text-white font-bold py-3 rounded-xl transition text-xs hover:bg-surface-hover">
+                    Cancel
+                  </button>
+                )}
+                <button 
+                  type="submit" 
+                  className="flex-1 bg-gradient-to-r from-primary to-secondary text-white font-bold py-3 rounded-xl transition flex justify-center items-center gap-2 text-xs shadow-md shadow-primary/10">
+                  {editingAssessmentId ? <Save size={14} /> : <Plus size={14} />}
+                  {editingAssessmentId ? 'Save Changes' : 'Create Drive Module'}
+                </button>
+              </div>
             </form>
           </div>
 
@@ -287,8 +337,26 @@ function AdminDashboard() {
                     Pool Size: {a.questions?.length || 0} • Candidates Answer: {a.questionCount && a.questionCount > 0 ? a.questionCount : a.questions?.length || 0}
                   </p>
                   <div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
-                    <span className="text-[10px] text-text-muted font-medium">Validation Code:</span>
-                    <code className="bg-surface border border-border px-3 py-1 rounded-lg text-primary font-mono font-bold text-xs tracking-widest">{a.secretCode}</code>
+                    <div className="flex gap-2">
+                      <button 
+                        onClick={() => handleStartEdit(a)}
+                        className="text-text-muted hover:text-white p-1.5 rounded hover:bg-surface-hover transition-colors"
+                        title="Edit Module"
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteModule(a._id)}
+                        className="text-error hover:text-rose-400 p-1.5 rounded hover:bg-error/10 transition-colors"
+                        title="Delete Module"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-text-muted font-medium">Validation Code:</span>
+                      <code className="bg-surface border border-border px-3 py-1 rounded-lg text-primary font-mono font-bold text-xs tracking-widest">{a.secretCode}</code>
+                    </div>
                   </div>
                 </div>
               ))}
