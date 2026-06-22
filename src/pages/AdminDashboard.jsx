@@ -79,6 +79,62 @@ function AdminDashboard() {
     }
   };
 
+  const downloadExcelReport = () => {
+    if (!selectedAssessmentReport || reportData.length === 0) return;
+    
+    // Find selected assessment title
+    const selectedAss = assessments.find(a => a._id === selectedAssessmentReport);
+    const title = selectedAss ? selectedAss.title : 'Assessment';
+
+    // CSV Headers
+    const headers = [
+      'Candidate Name',
+      'Candidate Email',
+      'Score (%)',
+      'Points Obtained',
+      'Max Points',
+      'Tab Switches',
+      'Fullscreen Escapes',
+      'Termination Reason',
+      'Verdict'
+    ];
+
+    // CSV Rows
+    const rows = reportData.map(r => {
+      const pct = r.maxPossibleScore > 0 ? Math.round((r.totalScore / r.maxPossibleScore) * 100) : 0;
+      const verdict = r.terminationReason === 'Normal' && r.tabSwitches < 2 && r.fullScreenExits < 2
+        ? 'Validated'
+        : 'Terminated';
+      
+      return [
+        `"${(r.user?.name || '').replace(/"/g, '""')}"`,
+        `"${(r.user?.email || '').replace(/"/g, '""')}"`,
+        pct,
+        r.totalScore,
+        r.maxPossibleScore,
+        r.tabSwitches,
+        r.fullScreenExits,
+        r.terminationReason,
+        verdict
+      ];
+    });
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(e => e.join(','))
+    ].join('\n');
+
+    // Create a blob and trigger download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${title.replace(/\s+/g, '_')}_Report.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleCreateModule = async (e) => {
     e.preventDefault();
     if (selectedQuestions.length === 0) {
@@ -397,7 +453,17 @@ function AdminDashboard() {
           </div>
 
           <div className="lg:col-span-3 bg-surface/50 border border-border/80 p-6 rounded-2xl backdrop-blur-sm overflow-hidden flex flex-col">
-            <h3 className="text-base font-bold text-white mb-5">Candidate Violations & Results</h3>
+            <div className="flex justify-between items-center mb-5 shrink-0">
+              <h3 className="text-base font-bold text-white">Candidate Violations & Results</h3>
+              {selectedAssessmentReport && reportData.length > 0 && (
+                <button
+                  onClick={downloadExcelReport}
+                  className="bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary hover:text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                >
+                  <FileText size={14} /> Download Excel
+                </button>
+              )}
+            </div>
             {loadingReport && <p className="text-xs text-text-muted animate-pulse">Retrieving test metrics...</p>}
             {!selectedAssessmentReport && !loadingReport && (
               <div className="text-center py-16">
