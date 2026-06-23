@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import useAuthStore from '../store/useAuthStore';
 import api from '../services/api';
-import { Plus, Link as LinkIcon, Save, Layers, ListTodo, ShieldAlert, Award, FileText, CheckCircle, Edit2, Trash2 } from 'lucide-react';
+import { Plus, Link as LinkIcon, Save, Layers, ListTodo, ShieldAlert, Award, FileText, CheckCircle, Edit2, Trash2, X } from 'lucide-react';
 
 function AdminDashboard() {
   const user = useAuthStore((state) => state.user);
@@ -12,6 +12,9 @@ function AdminDashboard() {
   const [leetCodeUrl, setLeetCodeUrl] = useState('');
   const [scraping, setScraping] = useState(false);
   const [scrapeMessage, setScrapeMessage] = useState('');
+  const [selectedQuestionForTestCases, setSelectedQuestionForTestCases] = useState(null);
+  const [modalTestCases, setModalTestCases] = useState([]);
+  const [savingTestCases, setSavingTestCases] = useState(false);
 
   // Assessment State
   const [assessments, setAssessments] = useState([]);
@@ -63,6 +66,61 @@ function AdminDashboard() {
       setScrapeMessage(err.response?.data?.message || 'Error scraping LeetCode');
     } finally {
       setScraping(false);
+    }
+  };
+
+  const handleOpenTestCasesModal = (question) => {
+    setSelectedQuestionForTestCases(question);
+    setModalTestCases(question.testCases || []);
+  };
+
+  const handleCloseTestCasesModal = () => {
+    setSelectedQuestionForTestCases(null);
+    setModalTestCases([]);
+  };
+
+  const handleAddTestCase = () => {
+    setModalTestCases([
+      ...modalTestCases,
+      { input: '', expectedOutput: '', isHidden: true }
+    ]);
+  };
+
+  const handleUpdateTestCaseField = (idx, field, value) => {
+    const updated = [...modalTestCases];
+    updated[idx] = { ...updated[idx], [field]: value };
+    setModalTestCases(updated);
+  };
+
+  const handleDeleteTestCase = (idx) => {
+    setModalTestCases(modalTestCases.filter((_, i) => i !== idx));
+  };
+
+  const handleSaveTestCases = async () => {
+    if (!selectedQuestionForTestCases) return;
+    setSavingTestCases(true);
+    try {
+      await api.put(`/questions/${selectedQuestionForTestCases._id}`, {
+        testCases: modalTestCases
+      });
+      alert('Test cases updated successfully!');
+      handleCloseTestCasesModal();
+      fetchQuestions();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error updating test cases');
+    } finally {
+      setSavingTestCases(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (qId) => {
+    if (!window.confirm('Are you sure you want to delete this challenge from the Problem Bank?')) return;
+    try {
+      await api.delete(`/questions/${qId}`);
+      alert('Challenge deleted successfully!');
+      fetchQuestions();
+    } catch (err) {
+      alert(err.response?.data?.message || 'Error deleting challenge');
     }
   };
 
@@ -275,9 +333,9 @@ function AdminDashboard() {
             <h3 className="text-base font-bold text-white mb-5">Challenge Repository</h3>
             <div className="max-h-[28rem] overflow-y-auto custom-scrollbar space-y-3 pr-2">
               {questions.map((q) => (
-                <div key={q._id} className="bg-background/40 border border-border/60 p-4 rounded-xl flex justify-between items-center transition hover:border-primary/40">
-                  <div className="space-y-1">
-                    <h4 className="font-bold text-white text-sm tracking-tight">{q.title}</h4>
+                <div key={q._id} className="bg-background/40 border border-border/60 p-4 rounded-xl flex justify-between items-center transition hover:border-primary/40 gap-4">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <h4 className="font-bold text-white text-sm tracking-tight truncate">{q.title}</h4>
                     <div className="flex items-center gap-3 text-[10px] text-text-muted font-semibold">
                       <span className={`px-2 py-0.5 rounded font-extrabold ${
                         q.difficulty === 'Easy' ? 'bg-success/10 text-success border border-success/20' :
@@ -285,8 +343,24 @@ function AdminDashboard() {
                         'bg-error/10 text-error border border-error/20'
                       }`}>{q.difficulty}</span>
                       <span>•</span>
-                      <span>{q.testCases?.length || 0} Test Cases</span>
+                      <span>{q.testCases?.length || 0} Test Cases ({q.testCases?.filter(t => t.isHidden).length || 0} Hidden)</span>
                     </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button 
+                      onClick={() => handleOpenTestCasesModal(q)}
+                      className="bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5"
+                    >
+                      <Edit2 size={12} /> Test Cases
+                    </button>
+                    <button 
+                      onClick={() => handleDeleteQuestion(q._id)}
+                      className="bg-error/10 hover:bg-error/20 border border-error/20 text-error hover:text-rose-400 p-2 rounded-lg text-xs font-bold transition"
+                      title="Delete Challenge"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -540,6 +614,124 @@ function AdminDashboard() {
                 </div>
               )
             )}
+          </div>
+        </div>
+      )}
+      {/* Manage Test Cases Modal */}
+      {selectedQuestionForTestCases && (
+        <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-xl w-full max-w-4xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-slide-in animate-duration-200">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-border/80 flex justify-between items-center bg-background/50">
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">
+                  Manage Test Cases for: {selectedQuestionForTestCases.title}
+                </h3>
+                <p className="text-[10px] text-text-muted mt-0.5 font-medium">
+                  Verify challenge constraints. Hidden test cases are not shown to students but are checked on submission.
+                </p>
+              </div>
+              <button 
+                onClick={handleCloseTestCasesModal}
+                className="text-text-muted hover:text-white p-1 rounded-lg hover:bg-surface-hover transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Scrollable Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-background/20">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-text-muted font-bold font-mono">
+                  {modalTestCases.length} Test Case(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAddTestCase}
+                  className="bg-primary/10 hover:bg-primary/20 border border-primary/20 text-primary px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition"
+                >
+                  <Plus size={14} /> Add Test Case
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {modalTestCases.map((tc, idx) => (
+                  <div key={idx} className="bg-background/40 border border-border/60 p-4 rounded-xl space-y-3 relative">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-white">Test Case #{idx + 1}</span>
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs text-text-muted select-none">
+                          <input 
+                            type="checkbox"
+                            className="accent-primary w-4 h-4 rounded cursor-pointer"
+                            checked={tc.isHidden ?? false}
+                            onChange={(e) => handleUpdateTestCaseField(idx, 'isHidden', e.target.checked)}
+                          />
+                          Hidden Case
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteTestCase(idx)}
+                          className="text-error hover:bg-error/10 hover:text-rose-400 p-1.5 rounded transition"
+                          title="Delete Case"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] text-text-muted mb-1 font-mono uppercase tracking-wider">Input Parameter(s)</label>
+                        <textarea
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-xs text-white font-mono focus:outline-none focus:border-primary transition"
+                          placeholder="e.g. [2, 7, 11, 15] or raw inputs..."
+                          value={tc.input}
+                          onChange={(e) => handleUpdateTestCaseField(idx, 'input', e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-text-muted mb-1 font-mono uppercase tracking-wider">Expected Output</label>
+                        <textarea
+                          rows={2}
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-xs text-white font-mono focus:outline-none focus:border-primary transition"
+                          placeholder="e.g. [0, 1] or raw outputs..."
+                          value={tc.expectedOutput}
+                          onChange={(e) => handleUpdateTestCaseField(idx, 'expectedOutput', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {modalTestCases.length === 0 && (
+                  <div className="text-center py-12 bg-background/20 rounded-xl border border-dashed border-border/80">
+                    <p className="text-xs text-text-muted italic">No test cases set up. Add one above to begin.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-5 border-t border-border/80 flex justify-end gap-3 bg-background/50">
+              <button
+                type="button"
+                onClick={handleCloseTestCasesModal}
+                className="bg-surface border border-border/80 text-white px-5 py-2.5 rounded-lg text-xs font-bold transition hover:bg-surface-hover"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingTestCases}
+                onClick={handleSaveTestCases}
+                className="bg-primary hover:bg-primary/95 text-white px-6 py-2.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-primary/10"
+              >
+                <Save size={14} />
+                {savingTestCases ? 'Saving...' : 'Save Test Cases'}
+              </button>
+            </div>
           </div>
         </div>
       )}
