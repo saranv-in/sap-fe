@@ -68,6 +68,8 @@ function AssessmentArena() {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [code, setCode] = useState({});
   const [language, setLanguage] = useState('javascript');
+  const [selectedLanguages, setSelectedLanguages] = useState({});
+  const [latestExecuted, setLatestExecuted] = useState({});
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
   const [timeLeft, setTimeLeft] = useState(3600);
@@ -88,6 +90,8 @@ function AssessmentArena() {
   // Sync state refs to prevent event handlers from closing over stale values
   const codeRef = useRef({});
   const languageRef = useRef('javascript');
+  const selectedLanguagesRef = useRef({});
+  const latestExecutedRef = useRef({});
   const assessmentRef = useRef(null);
 
   useEffect(() => {
@@ -97,6 +101,14 @@ function AssessmentArena() {
   useEffect(() => {
     languageRef.current = language;
   }, [language]);
+
+  useEffect(() => {
+    selectedLanguagesRef.current = selectedLanguages;
+  }, [selectedLanguages]);
+
+  useEffect(() => {
+    latestExecutedRef.current = latestExecuted;
+  }, [latestExecuted]);
 
   useEffect(() => {
     assessmentRef.current = assessment;
@@ -120,16 +132,45 @@ function AssessmentArena() {
         const localSaved = localStorage.getItem(`assessment_code_${id}_${user?.id}`);
         const parsedSaved = localSaved ? JSON.parse(localSaved) : null;
 
+        // Restore locally saved languages
+        const localLangs = localStorage.getItem(`assessment_langs_${id}_${user?.id}`);
+        const parsedLangs = localLangs ? JSON.parse(localLangs) : {};
+
+        // Restore locally saved execution status
+        const localExecuted = localStorage.getItem(`assessment_executed_${id}_${user?.id}`);
+        const parsedExecuted = localExecuted ? JSON.parse(localExecuted) : {};
+        setLatestExecuted(parsedExecuted);
+
         const initialCode = {};
+        const initialLangs = { ...parsedLangs };
+
         res.data.questions.forEach(q => {
+          initialCode[q._id] = {};
+          
           if (parsedSaved && parsedSaved[q._id]) {
-            initialCode[q._id] = parsedSaved[q._id];
-          } else {
-            const defaultLang = (q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql) ? 'sql' : 'javascript';
-            initialCode[q._id] = getTemplate(q, defaultLang);
+            if (typeof parsedSaved[q._id] === 'string') {
+              const defaultLang = (q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql) ? 'sql' : 'javascript';
+              initialCode[q._id][defaultLang] = parsedSaved[q._id];
+            } else {
+              initialCode[q._id] = parsedSaved[q._id];
+            }
+          }
+
+          const availableLanguages = ['javascript', 'python', 'java', 'cpp', 'sql'];
+          availableLanguages.forEach(lang => {
+            if (!initialCode[q._id][lang]) {
+              initialCode[q._id][lang] = getTemplate(q, lang);
+            }
+          });
+
+          if (!initialLangs[q._id]) {
+            initialLangs[q._id] = (q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql) ? 'sql' : 'javascript';
           }
         });
+
         setCode(initialCode);
+        setSelectedLanguages(initialLangs);
+        localStorage.setItem(`assessment_langs_${id}_${user?.id}`, JSON.stringify(initialLangs));
       } catch (err) {
         console.error(err);
         addToast('Failed to Load', 'Could not load the assessment. Please try again.', 'error');
@@ -155,9 +196,22 @@ function AssessmentArena() {
 
     try {
       for (const q of targetAssessment.questions) {
+        let submitLang = 'javascript';
+        let submitCode = '';
+
+        const questionExecuted = payload.latestExecuted?.[q._id];
+        if (questionExecuted && questionExecuted.language && questionExecuted.code !== undefined) {
+          submitLang = questionExecuted.language;
+          submitCode = questionExecuted.code;
+        } else {
+          const qLang = payload.selectedLanguages?.[q._id] || ((q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql) ? 'sql' : 'javascript');
+          submitLang = qLang;
+          submitCode = payload.code?.[q._id]?.[qLang] || '';
+        }
+
         const res = await api.post('/execute/submit', {
-          language: payload.language,
-          code: payload.code[q._id] || '',
+          language: submitLang,
+          code: submitCode,
           assessmentId: targetAssessment._id,
           questionId: q._id,
           tabSwitches: payload.tabSwitches,
@@ -174,6 +228,8 @@ function AssessmentArena() {
       
       // Clear local storage backups upon successful submit
       localStorage.removeItem(`assessment_code_${id}_${user?.id}`);
+      localStorage.removeItem(`assessment_langs_${id}_${user?.id}`);
+      localStorage.removeItem(`assessment_executed_${id}_${user?.id}`);
       localStorage.removeItem(`pending_submission_${id}_${user?.id}`);
       
       setSubmissionResults({
@@ -208,7 +264,8 @@ function AssessmentArena() {
     const payload = {
       assessment: currentAssessment,
       code: codeRef.current,
-      language: languageRef.current,
+      selectedLanguages: selectedLanguagesRef.current,
+      latestExecuted: latestExecutedRef.current,
       tabSwitches: tabSwitchesRef.current,
       fullScreenExits: fullScreenExitsRef.current,
       terminationReason
@@ -235,7 +292,8 @@ function AssessmentArena() {
     const payload = {
       assessment: currentAssessment,
       code: codeRef.current,
-      language: languageRef.current,
+      selectedLanguages: selectedLanguagesRef.current,
+      latestExecuted: latestExecutedRef.current,
       tabSwitches: tabSwitchesRef.current,
       fullScreenExits: fullScreenExitsRef.current,
       terminationReason: 'Normal'
@@ -331,13 +389,12 @@ function AssessmentArena() {
   const handleLanguageChange = (newLang) => {
     if (!assessment) return;
     const q = assessment.questions[currentQuestionIndex];
-    const oldTemplate = getTemplate(q, language);
-    const currentCode = code[q._id] || '';
-    const newTemplate = getTemplate(q, newLang);
     setLanguage(newLang);
-    if (currentCode.trim() === oldTemplate.trim() || currentCode.trim() === '// Write your code here...') {
-      setCode(prev => ({ ...prev, [q._id]: newTemplate }));
-    }
+    setSelectedLanguages(prev => {
+      const next = { ...prev, [q._id]: newLang };
+      localStorage.setItem(`assessment_langs_${id}_${user?.id}`, JSON.stringify(next));
+      return next;
+    });
   };
 
   // ─── Run Code ───
@@ -345,7 +402,20 @@ function AssessmentArena() {
     setIsRunning(true);
     setOutput({ status: 'running' });
     const currentQuestion = assessment.questions[currentQuestionIndex];
-    const currentCode = code[currentQuestion._id];
+    const currentCode = code[currentQuestion._id]?.[language] || '';
+
+    // Save this as the latest executed code
+    setLatestExecuted(prev => {
+      const next = {
+        ...prev,
+        [currentQuestion._id]: {
+          language,
+          code: currentCode
+        }
+      };
+      localStorage.setItem(`assessment_executed_${id}_${user?.id}`, JSON.stringify(next));
+      return next;
+    });
 
     try {
       const res = await api.post('/execute/run', { 
@@ -368,29 +438,23 @@ function AssessmentArena() {
   const handleCodeChange = (value) => {
     const qId = assessment.questions[currentQuestionIndex]._id;
     setCode(prev => {
-      const next = { ...prev, [qId]: value };
+      const qCode = prev[qId] ? { ...prev[qId] } : {};
+      qCode[language] = value;
+      const next = { ...prev, [qId]: qCode };
       localStorage.setItem(`assessment_code_${id}_${user?.id}`, JSON.stringify(next));
       return next;
     });
   };
 
-  // Auto-seed template when navigating
+  // Set language when current question changes
   useEffect(() => {
     if (!assessment) return;
     const q = assessment.questions[currentQuestionIndex];
-    
-    // Auto switch language if this question only supports SQL
-    if (q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql && language !== 'sql') {
-      setLanguage('sql');
-    } else if (q.codeTemplates && q.codeTemplates.javascript && !q.codeTemplates.sql && language === 'sql') {
-      setLanguage('javascript');
+    const qLang = selectedLanguages[q._id];
+    if (qLang) {
+      setLanguage(qLang);
     }
-
-    if (!code[q._id]) {
-      const activeLang = (q.codeTemplates && !q.codeTemplates.javascript && q.codeTemplates.sql) ? 'sql' : language;
-      setCode(prev => ({ ...prev, [q._id]: getTemplate(q, activeLang) }));
-    }
-  }, [currentQuestionIndex, assessment]);
+  }, [currentQuestionIndex, assessment, selectedLanguages]);
 
   // ─── Offline Queue Auto-Sync ───
   useEffect(() => {
@@ -708,7 +772,13 @@ function AssessmentArena() {
                       <button 
                         onClick={() => {
                           const q = assessment.questions[currentQuestionIndex];
-                          setCode(prev => ({ ...prev, [q._id]: getTemplate(q, language) }));
+                          setCode(prev => {
+                            const qCode = prev[q._id] ? { ...prev[q._id] } : {};
+                            qCode[language] = getTemplate(q, language);
+                            const next = { ...prev, [q._id]: qCode };
+                            localStorage.setItem(`assessment_code_${id}_${user?.id}`, JSON.stringify(next));
+                            return next;
+                          });
                           addToast('Editor Reset', 'Code has been reset to the default template.', 'info', 2000);
                         }}
                         className="text-text-muted hover:text-white px-2 py-1 rounded text-xs transition">
@@ -723,7 +793,7 @@ function AssessmentArena() {
                       defaultLanguage="javascript"
                       language={language}
                       theme={theme === 'dark' ? 'vs-dark' : 'light'}
-                      value={code[currentQuestion._id] ?? getTemplate(currentQuestion, language)}
+                      value={code[currentQuestion._id]?.[language] ?? getTemplate(currentQuestion, language)}
                       onChange={handleCodeChange}
                       options={{
                         minimap: { enabled: false },
