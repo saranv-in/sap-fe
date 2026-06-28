@@ -72,6 +72,8 @@ function AssessmentArena() {
   const [latestExecuted, setLatestExecuted] = useState({});
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [consoleTab, setConsoleTab] = useState('testcase');
+  const [selectedResultIndex, setSelectedResultIndex] = useState(0);
   const [timeLeft, setTimeLeft] = useState(3600);
   const [warningDisplay, setWarningDisplay] = useState({ tabs: 0, fs: 0 });
 
@@ -382,6 +384,7 @@ function AssessmentArena() {
       document.removeEventListener('keydown', handleKeyDown);
       clearInterval(timer);
       if (socketRef.current) socketRef.current.disconnect();
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, [id, user?.id, assessment, handleSubmit, addToast]);
 
@@ -424,6 +427,8 @@ function AssessmentArena() {
         questionId: currentQuestion._id 
       });
       setOutput({ status: 'completed', data: res.data });
+      setConsoleTab('result');
+      setSelectedResultIndex(0);
     } catch (err) {
       console.error(err);
       setOutput({ 
@@ -435,13 +440,42 @@ function AssessmentArena() {
     }
   };
 
+  const editorRef = useRef(null);
+
+  const handleEditorDidMount = (editor) => {
+    editorRef.current = editor;
+    if (document.fonts) {
+      document.fonts.ready.then(() => {
+        if (editorRef.current) {
+          editorRef.current.layout();
+        }
+      });
+    }
+    // Fallback delay to handle late loads
+    setTimeout(() => {
+      if (editorRef.current) {
+        editorRef.current.layout();
+      }
+    }, 500);
+  };
+
+  const saveTimeoutRef = useRef(null);
+
   const handleCodeChange = (value) => {
     const qId = assessment.questions[currentQuestionIndex]._id;
     setCode(prev => {
       const qCode = prev[qId] ? { ...prev[qId] } : {};
       qCode[language] = value;
       const next = { ...prev, [qId]: qCode };
-      localStorage.setItem(`assessment_code_${id}_${user?.id}`, JSON.stringify(next));
+      
+      // Debounce writing to localStorage to prevent UI stutter during typing
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      saveTimeoutRef.current = setTimeout(() => {
+        localStorage.setItem(`assessment_code_${id}_${user?.id}`, JSON.stringify(next));
+      }, 500);
+
       return next;
     });
   };
@@ -454,6 +488,9 @@ function AssessmentArena() {
     if (qLang) {
       setLanguage(qLang);
     }
+    setOutput(null);
+    setConsoleTab('testcase');
+    setSelectedResultIndex(0);
   }, [currentQuestionIndex, assessment, selectedLanguages]);
 
   // ─── Offline Queue Auto-Sync ───
@@ -639,7 +676,7 @@ function AssessmentArena() {
 
   return (
     <div 
-      className="h-screen flex flex-col bg-background text-text overflow-hidden select-none"
+      className="h-screen flex flex-col bg-background text-text overflow-hidden"
       onCopy={(e) => e.preventDefault()}
       onContextMenu={(e) => e.preventDefault()}
     >
@@ -703,7 +740,7 @@ function AssessmentArena() {
         <PanelGroup direction="horizontal" orientation="horizontal" className="w-full h-full">
           {/* Left Panel: Question Details */}
           <Panel id="left-panel" order={1} defaultSize={50} minSize={20} maxSize={80}>
-            <div className="h-full w-full bg-surface rounded-lg flex flex-col overflow-hidden">
+            <div className="h-full w-full bg-surface rounded-lg flex flex-col overflow-hidden select-none">
               {/* Question Navigation Bar */}
               <div className="h-10 bg-surface flex items-center px-4 justify-between shrink-0 border-b border-border">
                 <div className="flex items-center gap-2 text-text font-semibold text-xs">
@@ -795,16 +832,18 @@ function AssessmentArena() {
                       theme={theme === 'dark' ? 'vs-dark' : 'light'}
                       value={code[currentQuestion._id]?.[language] ?? getTemplate(currentQuestion, language)}
                       onChange={handleCodeChange}
+                      onMount={handleEditorDidMount}
                       options={{
+                        automaticLayout: true,
                         minimap: { enabled: false },
                         fontSize: 14,
-                        fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                        fontFamily: "Consolas, Menlo, Monaco, 'Courier New', monospace",
                         lineHeight: 24,
                         padding: { top: 16 },
                         scrollBeyondLastLine: false,
-                        smoothScrolling: true,
-                        cursorBlinking: "smooth",
-                        cursorSmoothCaretAnimation: "on"
+                        smoothScrolling: false,
+                        cursorBlinking: "blink",
+                        cursorSmoothCaretAnimation: "off"
                       }}
                     />
                   </div>
@@ -819,71 +858,113 @@ function AssessmentArena() {
               <Panel id="console-panel" order={2} defaultSize={35} minSize={15}>
                 <div className="h-full w-full bg-surface rounded-lg flex flex-col overflow-hidden">
                   <div className="h-10 bg-surface flex items-center px-2 shrink-0 border-b border-border gap-1">
-                    <button className="flex items-center gap-2 text-text font-semibold text-xs px-3 py-1.5 bg-surface-hover rounded-md">
+                    <button 
+                      onClick={() => setConsoleTab('testcase')}
+                      className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md font-semibold transition ${consoleTab === 'testcase' ? 'bg-surface-hover text-text' : 'text-text-muted hover:text-text'}`}
+                    >
                        <CheckCircle2 size={14} className="text-success" /> Testcase
                     </button>
-                    <button className="flex items-center gap-2 text-text-muted hover:text-text font-medium text-xs px-3 py-1.5 rounded-md transition">
+                    <button 
+                      onClick={() => setConsoleTab('result')}
+                      className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md font-semibold transition ${consoleTab === 'result' ? 'bg-surface-hover text-text' : 'text-text-muted hover:text-text'}`}
+                    >
                        <TerminalSquare size={14} /> Test Result
                     </button>
                   </div>
                   
-                  <div className="flex-1 p-4 overflow-y-auto custom-scrollbar">
-                    {!output && <span className="text-text-muted italic font-mono text-sm">Run your code to see test case results here...</span>}
-                    {output?.status === 'running' && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        <span className="text-text-muted font-mono text-sm">Running all test cases...</span>
+                  <div className="flex-1 p-4 overflow-y-auto custom-scrollbar bg-background/20">
+                    {consoleTab === 'testcase' && (
+                      <div className="space-y-4">
+                        {currentQuestion.testCases && currentQuestion.testCases.map((tc, idx) => (
+                          <div key={idx} className="text-sm font-mono space-y-3 pb-6 border-b border-border last:border-0">
+                            <span className="text-xs font-bold text-white">Case {idx + 1}</span>
+                            <div>
+                              <div className="text-text-muted text-xs mb-1 font-sans font-medium">Input</div>
+                              <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text">{tc.input}</div>
+                            </div>
+                            <div>
+                              <div className="text-text-muted text-xs mb-1 font-sans font-medium">Expected Output</div>
+                              <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text">{tc.expectedOutput}</div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
-                    {output?.status === 'error' && <span className="text-error font-mono text-sm whitespace-pre-wrap">{output.message}</span>}
-                    {output?.status === 'completed' && (
-                      <div>
-                        <div className="mb-4 flex items-center gap-4">
-                          <h2 className={`font-bold text-xl ${output.data.passedCases === output.data.totalCases ? 'text-success' : 'text-error'}`}>
-                             {output.data.passedCases === output.data.totalCases ? 'Accepted' : 'Wrong Answer'}
-                          </h2>
-                          <span className="text-text-muted text-sm">
-                             Runtime: {output.data.results[0]?.time || '0'} ms
-                          </span>
-                        </div>
-                        
-                        {/* Case tabs mock */}
-                        <div className="flex gap-2 mb-6 overflow-x-auto pb-2 custom-scrollbar">
-                          {output.data.results.map((r, i) => (
-                             <button key={i} className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition ${r.status === 'Passed' ? 'bg-surface-hover text-text' : 'bg-error/10 text-error'}`}>
-                               <div className={`w-1.5 h-1.5 rounded-full ${r.status === 'Passed' ? 'bg-success' : 'bg-error'}`}></div>
-                               Case {i + 1}
-                             </button>
-                          ))}
-                        </div>
 
-                        <div className="flex flex-col gap-4">
-                          {output.data.results.map((r, i) => (
-                            <div key={i} className="text-sm font-mono space-y-4 pb-6 border-b border-border last:border-0">
-                              {r.isHidden ? (
-                                <div className="text-text-muted italic text-xs">Hidden Test Case</div>
-                              ) : (
-                                <>
-                                  <div>
-                                    <div className="text-text-muted text-xs mb-1 font-sans font-medium">Input</div>
-                                    <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text">{r.input}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-text-muted text-xs mb-1 font-sans font-medium">Expected Output</div>
-                                    <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text">{r.expectedOutput}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-text-muted text-xs mb-1 font-sans font-medium">Your Output</div>
-                                    <div className={`p-3 rounded-md whitespace-pre-wrap text-text ${r.status === 'Passed' ? 'bg-surface-hover' : 'bg-error/10'}`}>
-                                      {r.actualOutput || <span className="opacity-50 italic">No output</span>}
-                                    </div>
-                                  </div>
-                                </>
-                              )}
+                    {consoleTab === 'result' && (
+                      <>
+                        {!output && <span className="text-text-muted italic font-mono text-sm">Run your code to see test case results here...</span>}
+                        {output?.status === 'running' && (
+                          <div className="flex items-center gap-3">
+                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            <span className="text-text-muted font-mono text-sm">Running all test cases...</span>
+                          </div>
+                        )}
+                        {output?.status === 'error' && <span className="text-error font-mono text-sm whitespace-pre-wrap">{output.message}</span>}
+                        {output?.status === 'completed' && (
+                          <div>
+                            <div className="mb-4 flex items-center gap-4">
+                              <h2 className={`font-bold text-xl ${output.data.passedCases === output.data.totalCases ? 'text-success' : 'text-error'}`}>
+                                 {output.data.passedCases === output.data.totalCases ? 'Accepted' : 'Wrong Answer'}
+                              </h2>
+                              <span className="text-text-muted text-sm">
+                                 Runtime: {output.data.results[0]?.time || '0'} ms
+                              </span>
                             </div>
-                          ))}
-                        </div>
-                      </div>
+                            
+                            {/* Case tabs */}
+                            <div className="flex gap-2 mb-6 overflow-x-auto pb-2 custom-scrollbar">
+                              {output.data.results.map((r, i) => (
+                                 <button 
+                                   key={i} 
+                                   onClick={() => setSelectedResultIndex(i)}
+                                   className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition ${selectedResultIndex === i ? 'bg-primary/20 text-primary border border-primary/30' : r.status === 'Passed' ? 'bg-surface-hover text-text' : 'bg-error/10 text-error'}`}
+                                 >
+                                   <div className={`w-1.5 h-1.5 rounded-full ${r.status === 'Passed' ? 'bg-success' : 'bg-error'}`}></div>
+                                   Case {i + 1}
+                                 </button>
+                              ))}
+                            </div>
+
+                            {(() => {
+                              const r = output.data.results[selectedResultIndex];
+                              if (!r) return null;
+                              return (
+                                <div className="text-sm font-mono space-y-4 pb-6">
+                                  {r.isHidden ? (
+                                    <div className="text-text-muted italic text-xs">Hidden Test Case</div>
+                                  ) : (
+                                    <>
+                                      <div>
+                                        <div className="text-text-muted text-xs mb-1 font-sans font-medium">Input</div>
+                                        <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text select-text">{r.input}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-text-muted text-xs mb-1 font-sans font-medium">Expected Output</div>
+                                        <div className="bg-surface-hover p-3 rounded-md whitespace-pre-wrap text-text select-text">{r.expectedOutput}</div>
+                                      </div>
+                                      <div>
+                                        <div className="text-text-muted text-xs mb-1 font-sans font-medium">Your Output</div>
+                                        <div className={`p-3 rounded-md whitespace-pre-wrap text-text select-text ${r.status === 'Passed' ? 'bg-surface-hover' : 'bg-error/10'}`}>
+                                          {r.actualOutput || <span className="opacity-50 italic">No output</span>}
+                                        </div>
+                                      </div>
+                                      {r.consoleLogs && (
+                                        <div>
+                                          <div className="text-text-muted text-xs mb-1 font-sans font-medium">Stdout / Console Output</div>
+                                          <pre className="bg-background/80 border border-border/80 p-3 rounded-md whitespace-pre-wrap text-emerald-400 font-mono text-xs max-h-40 overflow-y-auto leading-relaxed select-text">
+                                            {r.consoleLogs}
+                                          </pre>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
