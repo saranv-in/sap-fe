@@ -1,13 +1,28 @@
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Sun, Moon, Lock, ShieldAlert, Zap, BarChart3, Target } from 'lucide-react';
 import useAuthStore from './store/useAuthStore';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import AdminDashboard from './pages/AdminDashboard';
-import StudentDashboard from './pages/StudentDashboard';
-import AssessmentArena from './pages/AssessmentArena';
 import GlobalLoader from './components/GlobalLoader';
+
+// Lazy loaded page components
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const StudentDashboard = lazy(() => import('./pages/StudentDashboard'));
+const AssessmentArena = lazy(() => import('./pages/AssessmentArena'));
+
+// Custom premium fallback page loader
+const PageLoader = () => (
+  <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh] p-8 select-none">
+    <div className="relative w-10 h-10 flex items-center justify-center">
+      <div className="absolute inset-0 rounded-full border-3 border-t-primary border-r-secondary border-b-transparent border-l-transparent animate-spin" />
+      <div className="absolute inset-1 rounded-full border border-dashed border-primary/20 animate-[spin_2s_linear_infinite_reverse]" />
+    </div>
+    <span className="text-[10px] text-text-muted mt-4 uppercase tracking-widest font-mono font-bold animate-pulse">
+      Loading Secure Module...
+    </span>
+  </div>
+);
 
 const ProtectedRoute = ({ children, role }) => {
   const user = useAuthStore((state) => state.user);
@@ -81,7 +96,8 @@ function App() {
         </Routes>
 
         <main className="flex-1 flex flex-col relative">
-          <Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
             <Route path="/" element={
               <div className="max-w-6xl mx-auto px-6 py-16 md:py-24 text-center flex flex-col items-center">
                 {/* Hero Proctoring Shield Badge */}
@@ -151,7 +167,8 @@ function App() {
             <Route path="/admin/dashboard" element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
             <Route path="/student/dashboard" element={<ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>} />
             <Route path="/arena/:id" element={<ProtectedRoute role="student"><AssessmentArena /></ProtectedRoute>} />
-          </Routes>
+            </Routes>
+          </Suspense>
         </main>
       </div>
     </Router>
