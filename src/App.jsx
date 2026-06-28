@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import AdminDashboard from './pages/AdminDashboard';
 import StudentDashboard from './pages/StudentDashboard';
 import AssessmentArena from './pages/AssessmentArena';
+import GlobalLoader from './components/GlobalLoader';
 
 const ProtectedRoute = ({ children, role }) => {
   const user = useAuthStore((state) => state.user);
@@ -28,6 +29,7 @@ function App() {
 
   return (
     <Router>
+      <GlobalLoader />
       <div className="min-h-screen bg-background text-text flex flex-col font-sans">
         {/* Navbar */}
         <Routes>
