@@ -10,7 +10,11 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    useLoadingStore.getState().startLoading();
+    const isExecution = config.url && config.url.includes('/execute');
+    if (!isExecution) {
+      useLoadingStore.getState().startLoading();
+    }
+    config._isExecution = isExecution;
     const token = useAuthStore.getState().token;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -18,18 +22,24 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    useLoadingStore.getState().stopLoading();
+    if (error.config && !error.config._isExecution) {
+      useLoadingStore.getState().stopLoading();
+    }
     return Promise.reject(error);
   }
 );
 
 api.interceptors.response.use(
   (response) => {
-    useLoadingStore.getState().stopLoading();
+    if (response.config && !response.config._isExecution) {
+      useLoadingStore.getState().stopLoading();
+    }
     return response;
   },
   (error) => {
-    useLoadingStore.getState().stopLoading();
+    if (error.config && !error.config._isExecution) {
+      useLoadingStore.getState().stopLoading();
+    }
     return Promise.reject(error);
   }
 );
