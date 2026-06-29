@@ -868,7 +868,13 @@ function AssessmentArena() {
                       onClick={() => setConsoleTab('result')}
                       className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md font-semibold transition ${consoleTab === 'result' ? 'bg-surface-hover text-text' : 'text-text-muted hover:text-text'}`}
                     >
-                       <TerminalSquare size={14} /> Test Result
+                       <LayoutList size={14} /> Test Result
+                    </button>
+                    <button 
+                      onClick={() => setConsoleTab('terminal')}
+                      className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-md font-semibold transition ${consoleTab === 'terminal' ? 'bg-surface-hover text-text' : 'text-text-muted hover:text-text'}`}
+                    >
+                       <TerminalSquare size={14} className="text-primary" /> Terminal
                     </button>
                   </div>
                   
@@ -965,6 +971,66 @@ function AssessmentArena() {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {consoleTab === 'terminal' && (
+                      <div className="space-y-4 font-mono text-sm">
+                        {!output && <span className="text-text-muted italic">Run your code to see terminal stdout logs here...</span>}
+                        {output?.status === 'running' && (
+                          <div className="flex items-center gap-3">
+                            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            <span className="text-text-muted">Running code...</span>
+                          </div>
+                        )}
+                        {output?.status === 'error' && (
+                          <div className="bg-error/10 border border-error/30 text-error p-3 rounded-md whitespace-pre-wrap select-text">
+                            {output.message}
+                          </div>
+                        )}
+                        {output?.status === 'completed' && (
+                          <div className="bg-black/60 border border-border p-4 rounded-lg select-text max-h-[350px] overflow-y-auto whitespace-pre-wrap leading-relaxed space-y-6 shadow-inner custom-scrollbar">
+                            {output.data.results.map((r, i) => {
+                              if (r.isHidden) return null;
+                              
+                              const isPassed = r.status === 'Passed';
+                              return (
+                                <div key={i} className="pb-6 border-b border-border/40 last:border-0 last:pb-0">
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <span className="font-bold text-white">Case {i + 1}:</span>
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${isPassed ? 'bg-success/15 text-success' : 'bg-error/15 text-error'}`}>
+                                      {r.status}
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2 pl-3 border-l-2 border-border/40">
+                                    <div>
+                                      <span className="text-text-muted text-xs font-sans">Input:</span>
+                                      <pre className="text-gray-300 text-xs mt-0.5 whitespace-pre-wrap">{r.input}</pre>
+                                    </div>
+                                    <div>
+                                      <span className="text-text-muted text-xs font-sans">Expected Output:</span>
+                                      <pre className="text-gray-300 text-xs mt-0.5 whitespace-pre-wrap">{r.expectedOutput}</pre>
+                                    </div>
+                                    <div>
+                                      <span className="text-text-muted text-xs font-sans">Your Output:</span>
+                                      <pre className={`${isPassed ? 'text-success' : 'text-error'} text-xs mt-0.5 whitespace-pre-wrap`}>
+                                        {r.actualOutput || 'No output'}
+                                      </pre>
+                                    </div>
+                                    {r.consoleLogs && (
+                                      <div>
+                                        <span className="text-emerald-400 text-xs font-sans">Stdout / Console Output:</span>
+                                        <pre className="text-emerald-300 text-xs mt-0.5 whitespace-pre-wrap max-h-32 overflow-y-auto bg-background/50 p-2 rounded border border-border/20">
+                                          {r.consoleLogs}
+                                        </pre>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
